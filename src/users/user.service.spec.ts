@@ -7,16 +7,10 @@ import * as bcrypt from 'bcrypt';
 import { RedisService } from '../core/redis';
 
 jest.mock('bcrypt');
-
 describe('UserService', () => {
-  let service: UserService;
+  let userService: UserService;
   let userRepository: Repository<UserEntity>;
-  const mockRedisService = {
-    getClient: jest.fn(() => ({
-      set: jest.fn(),
-      get: jest.fn(),
-    })),
-  };
+  let redisService: RedisService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -26,94 +20,101 @@ describe('UserService', () => {
           provide: getRepositoryToken(UserEntity),
           useClass: Repository,
         },
-        { provide: RedisService, useValue: mockRedisService },
+        RedisService, // Add the RedisService to the providers
       ],
     }).compile();
 
-    service = module.get<UserService>(UserService);
+    userService = module.get<UserService>(UserService);
     userRepository = module.get<Repository<UserEntity>>(
       getRepositoryToken(UserEntity),
     );
+    redisService = module.get<RedisService>(RedisService);
   });
 
-  it('should create a user', async () => {
-    const createUserDto = {
-      username: 'testuser',
-      email: 'test@gmail.com',
-      password: 'testpassword',
-    };
+  describe('create', () => {
+    it('should create a user and save it to the repository and Redis', async () => {
+      // Arrange
+      const createUserDto = {
+        username: 'testuser',
+        email: 'test@gmail.com',
+        password: 'testpassword',
+      };
 
-    const userEntity = new UserEntity();
-    userEntity.username = createUserDto.username;
-    userEntity.password = 'hashedPassword';
-    userEntity.email = createUserDto.email;
+      const hashedPassword = 'hashedPassword';
+      const savedUser = new UserEntity();
+      savedUser.id = 1;
+      savedUser.username = createUserDto.username;
+      savedUser.email = createUserDto.email;
+      savedUser.password = hashedPassword;
 
-    jest.spyOn(userRepository, 'create').mockReturnValue(userEntity);
-    jest.spyOn(userRepository, 'save').mockResolvedValue(userEntity);
-    jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashedPassword');
+      jest.spyOn(bcrypt, 'hash').mockResolvedValue(hashedPassword);
+      jest.spyOn(userRepository, 'create').mockReturnValue(savedUser);
+      jest.spyOn(userRepository, 'save').mockResolvedValue(savedUser);
+      jest.spyOn(redisService.getClient(), 'set').mockResolvedValue(null);
 
-    const result = await service.create(createUserDto);
+      // Act
+      const result = await userService.create(createUserDto);
 
-    expect(userRepository.create).toHaveBeenCalledWith({
-      username: 'testuser',
-      password: 'hashedPassword',
-      email: 'test@gmail.com',
+      // Assert
+      expect(bcrypt.hash).toHaveBeenCalledWith('testpassword', 10);
+      expect(userRepository.create).toHaveBeenCalledWith({
+        username: 'testuser',
+        email: 'test@gmail.com',
+        password: hashedPassword,
+      });
+      expect(userRepository.save).toHaveBeenCalledWith(savedUser);
+      expect(redisService.getClient().set).toHaveBeenCalledWith(
+        `user:${savedUser.username}`,
+        JSON.stringify(savedUser),
+      );
+      expect(result).toEqual(savedUser);
     });
-    expect(userRepository.save).toHaveBeenCalledWith(userEntity);
-    expect(bcrypt.hash).toHaveBeenCalledWith('testpassword', 10);
-    expect(result).toEqual(userEntity);
   });
 
-  it('should find user by username from Redis cache', async () => {
-    const username = 'testuser';
-    const userData = '{"id": 1, "username": "testuser"}';
+  describe('findByUsername', () => {
+    it('should find user by username from Redis cache', async () => {
+      // Arrange
+      const username = 'testuser';
+      const userData = '{"id": 1, "username": "testuser"}';
 
-    const userEntity = new UserEntity();
-    userEntity.id = 1;
-    userEntity.username = 'testuser';
+      jest.spyOn(redisService.getClient(), 'get').mockResolvedValue(userData);
 
-    // Mocking the findOne method to resolve with userEntity
-    jest.spyOn(userRepository, 'findOne').mockResolvedValue(userEntity);
+      // Act
+      const result = await userService.findByUsername(username);
 
-    // Mocking the Redis get method to resolve with userData
-    mockRedisService.getClient().get.mockResolvedValue(userData);
-
-    const result = await service.findByUsername(username);
-
-    // Verify that findOne was called with the correct parameters
-    expect(userRepository.findOne).toHaveBeenCalledWith({
-      where: { username },
+      // Assert
+      expect(redisService.getClient().get).toHaveBeenCalledWith(
+        `user:${username}`,
+      );
+      expect(result).toEqual(JSON.parse(userData));
     });
 
-    // Verify that the Redis getClient().get was called with the correct key
-    expect(mockRedisService.getClient().get).toHaveBeenCalledWith(
-      `user:${username}`,
-    );
+    it('should find user by username from the repository and save to Redis if not in cache', async () => {
+      // Arrange
+      const username = 'testuser';
+      const userFromDb = new UserEntity();
+      userFromDb.id = 1;
+      userFromDb.username = 'testuser';
 
-    // Verify that the method returned the expected result
-    expect(result).toEqual(JSON.parse(userData));
+      jest.spyOn(redisService.getClient(), 'get').mockResolvedValue(null);
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(userFromDb);
+      jest.spyOn(redisService.getClient(), 'set').mockResolvedValue(null);
+
+      // Act
+      const result = await userService.findByUsername(username);
+
+      // Assert
+      expect(redisService.getClient().get).toHaveBeenCalledWith(
+        `user:${username}`,
+      );
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { username },
+      });
+      expect(redisService.getClient().set).toHaveBeenCalledWith(
+        `user:${username}`,
+        JSON.stringify(userFromDb),
+      );
+      expect(result).toEqual(userFromDb);
+    });
   });
-
-  // it('should find user by username from the database and cache the result', async () => {
-  //   const username = 'testuser';
-  //   const userEntity = new UserEntity();
-  //   userEntity.id = 1;
-  //   userEntity.username = 'testuser';
-  //
-  //   jest.spyOn(service.redisService.getClient(), 'get').mockResolvedValue(null);
-  //   jest.spyOn(userRepository, 'findOne').mockResolvedValueOnce(userEntity);
-  //   const result = await service.findByUsername(username);
-  //
-  //   expect(service.redisService.getClient().get).toHaveBeenCalledWith(
-  //     `user:${username}`,
-  //   );
-  //   expect(userRepository.findOne).toHaveBeenCalledWith({
-  //     where: { username: 'testuser' },
-  //   });
-  //   expect(service.redisService.getClient().set).toHaveBeenCalledWith(
-  //     `user:${username}`,
-  //     JSON.stringify(userEntity),
-  //   );
-  //   expect(result).toEqual(userEntity);
-  // });
 });

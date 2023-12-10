@@ -49,7 +49,4 @@ export class UserService {
     }
     return userFromDb;
   }
-  getRedisService() {
-    return this.redisService;
-  }
 }

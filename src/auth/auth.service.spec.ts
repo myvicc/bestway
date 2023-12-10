@@ -80,7 +80,7 @@ describe('AuthService', () => {
       };
 
       jest.spyOn(userService, 'findByUsername').mockResolvedValueOnce(mockUser);
-
+      jest.spyOn(bcrypt, 'compare').mockResolvedValueOnce(false);
       const result = await authService.validateUser(mockUsername, mockPassword);
 
       expect(result).toBeNull();
