@@ -3,18 +3,17 @@ services:
   db:
     container_name: postgres-way
     image: postgres:14-alpine
-    restart: always
     environment:
-      - POSTGRES_USER=${TYPEORM_USERNAME}
-      - POSTGRES_PASSWORD=${TYPEORM_PASSWORD}
-      - POSTGRES_DB=${TYPEORM_DATABASE}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
     volumes:
       - ./pgdata:/var/lib/postgresql/data
     ports:
-      - ${TYPEORM_PORT}:${TYPEORM_PORT}
+      - '5434:5432'
   redis:
     container_name: redis-way
     image: redis:latest
     restart: always
     ports:
-      - 6379:6379
+      - '6380:6379'

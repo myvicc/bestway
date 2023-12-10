@@ -24,7 +24,7 @@ export class UserService {
     const savedUser = await this.userRepository.save(user);
     await this.redisService
       .getClient()
-      .set(`user:${savedUser.id}`, JSON.stringify(savedUser));
+      .set(`user:${savedUser.username}`, JSON.stringify(savedUser));
 
     return savedUser;
   }

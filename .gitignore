@@ -4,6 +4,7 @@
 /errors
 /info
 .env
+/pgdata
 
 # Logs
 logs
